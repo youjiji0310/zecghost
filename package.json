@@ -1,0 +1,19 @@
+{
+  "name": "ghst-mint",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "$GHST — Zcash (ZEC) genesis mint page, with real Noir Wallet connect & pay integration.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@noir-wallet/sdk": "^0.1.9",
+    "js-sha256": "^1.0.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}
