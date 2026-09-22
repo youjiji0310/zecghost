@@ -42,7 +42,9 @@ ghst-mint-project/
   vercel.json          # dit à Vercel que c'est un projet Vite
   index.html            # markup de la page (contenu, pas de logique)
   api/
-    verify-claim.js     # fonction serverless Vercel — anti-bot (captcha + re-vérif PoW + rate-limit)
+    _kv.js                    # helper partagé pour parler à Vercel KV
+    verify-claim.js          # fonction serverless Vercel — anti-bot public (captcha + re-vérif PoW + rate-limit)
+    verify-team-claim.js    # fonction serverless Vercel — gate team (code secret + rate-limit + cap 33)
   src/
     style.css           # tous les styles
     config.js            # LA config à éditer à la main : supply mintée, prix, difficulté
@@ -79,7 +81,7 @@ Le mint ne s'active plus juste en résolvant le proof-of-work dans le navigateur
 
 ### Tester en local
 
-`npm run dev` (Vite tout seul) affiche bien la page et le widget captcha, **mais** `/api/verify-claim` ne répond pas (404) — Vite ne fait pas tourner les fonctions serverless. Pour tester le flux complet en local :
+`npm run dev` (Vite tout seul) affiche bien la page et le widget captcha, **mais** `/api/verify-claim` et `/api/verify-team-claim` ne répondent pas (404) — Vite ne fait pas tourner les fonctions serverless. Pour tester le flux complet en local :
 
 ```powershell
 npm install -g vercel
@@ -87,6 +89,16 @@ vercel link      # une fois, connecte ce dossier à ton projet Vercel
 vercel env pull  # récupère tes vraies variables d'environnement en local
 vercel dev       # lance Vite + les fonctions /api ensemble
 ```
+
+## Team mint (Phase 1 — 33 gratuits, invite-only)
+
+Section repliée sur la page ("Team mint (Phase 1 — invite only)"), séparée du mint public : pas de proof-of-work, pas de captcha — juste un **code secret** que toi seul connais, vérifié côté serveur (jamais présent dans le code envoyé au navigateur). Protégé en plus par : 1 claim par adresse, max 10 tentatives de code par IP/heure, et un plafond dur de 33 claims au total.
+
+**Étape supplémentaire à faire sur Vercel** (en plus des 3 déjà listées plus haut, la KV sert aux deux) :
+- Projet → **Settings** → **Environment Variables**, ajoute `TEAM_MINT_CODE` = un code de ton choix (ex. `ghst-team-2026-xyz`), à partager en privé avec tes 33 membres — jamais dans le repo, jamais dans un message public.
+- Redéploie après l'avoir ajouté.
+
+Le montant envoyé (`0.0001 ZEC`) est symbolique — Zcash a besoin d'un montant non-nul pour attacher un memo, donc c'est pas vraiment gratuit au sens "0 ZEC", mais c'est le prix réseau minimum, pas le prix public (0.025 ZEC).
 
 ## À adapter avant de publier publiquement
 

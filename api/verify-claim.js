@@ -20,24 +20,12 @@
 
 import { createHash } from 'node:crypto';
 import { DIFFICULTY } from '../src/config.js';
+import { kv, getClientIp } from './_kv.js';
 
 const IP_LIMIT_PER_HOUR = 5; // captcha-verify attempts per IP per rolling hour
 
 function sha256Hex(str) {
   return createHash('sha256').update(str).digest('hex');
-}
-
-async function kv(cmd) {
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) throw new Error('KV not configured (missing Vercel KV env vars)');
-  const path = cmd.map(encodeURIComponent).join('/');
-  const res = await fetch(`${url}/${path}`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!res.ok) throw new Error('KV request failed: ' + res.status);
-  const data = await res.json();
-  return data.result;
 }
 
 export default async function handler(req, res) {
@@ -55,9 +43,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
-      || req.socket?.remoteAddress
-      || 'unknown';
+    const ip = getClientIp(req);
 
     // 1) rate-limit this IP first — before touching Turnstile or hashing
     const ipCount = await kv(['incr', `ghst:ip:${ip}:count`]);

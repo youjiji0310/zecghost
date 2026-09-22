@@ -1,6 +1,6 @@
 import { getNoirWallet } from '@noir-wallet/sdk';
 import { startPow, DIFFICULTY } from './pow.js';
-import { TOTAL_SUPPLY, MINTED_TOTAL, MINT_PRICE } from './config.js';
+import { TOTAL_SUPPLY, MINTED_TOTAL, MINT_PRICE, TEAM_PRICE } from './config.js';
 
 function $(id){ return document.getElementById(id); }
 
@@ -20,6 +20,11 @@ function syncConfigDisplay(){
   if(mintAmount) mintAmount.textContent = MINT_PRICE + ' ZEC';
   var mintAmountCopy = $('mintAmountCopy');
   if(mintAmountCopy) mintAmountCopy.dataset.copy = MINT_PRICE;
+
+  var teamAmount = $('teamAmount');
+  if(teamAmount) teamAmount.textContent = TEAM_PRICE + ' ZEC';
+  var teamAmountCopy = $('teamAmountCopy');
+  if(teamAmountCopy) teamAmountCopy.dataset.copy = TEAM_PRICE;
 
   var marketTag = $('marketTag');
   if(marketTag){
@@ -308,6 +313,105 @@ $('claimBtn').addEventListener('click', function(){
   r.textContent = block;
   r.classList.add('show');
   $('receiptNote').hidden = false;
+});
+
+/* ---------- team mint (Phase 1, invite-only) ----------
+   No proof-of-work here — the gate is a secret code the team shares
+   privately, checked server-side (never shipped in this bundle), plus
+   a one-claim-per-address cap and a hard 33 limit, both enforced by
+   /api/verify-team-claim. Manual-pay only (no Noir Wallet auto-send
+   for this rarely-used path) — team members copy the memo + tiny dust
+   amount and submit the txid, same honor-system pattern as the rest
+   of the page. */
+
+var PAY_ADDRESS_TEAM = $('payAddr').textContent.trim();
+
+async function verifyTeamClaim(address, teamCode){
+  var res = await fetch('/api/verify-team-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address: address, teamCode: teamCode })
+  });
+  var data;
+  try{ data = await res.json(); }catch(e){ data = { ok:false, error:'bad server response' }; }
+  if(!res.ok || !data.ok){
+    throw new Error(data.error || ('server rejected the claim (' + res.status + ')'));
+  }
+  return data;
+}
+
+var teamLocked = $('teamLocked');
+var teamUnlocked = $('teamUnlocked');
+var teamUnlockBtn = $('teamUnlockBtn');
+var teamCodeValue = null; // held only in memory; the real check happens server-side on every verify call
+
+teamUnlockBtn.addEventListener('click', function(){
+  var code = $('fTeamCode').value.trim();
+  if(!code){
+    $('fTeamCode').style.borderColor = 'var(--red)';
+    return;
+  }
+  $('fTeamCode').style.borderColor = '';
+  teamCodeValue = code;
+  teamLocked.hidden = true;
+  teamUnlocked.hidden = false;
+});
+
+var teamPaySection = $('teamPaySection');
+var teamVerifyBtn = $('teamVerifyBtn');
+var teamVerifyMsg = $('teamVerifyMsg');
+var teamClaim = null; // { address }
+
+teamVerifyBtn.addEventListener('click', async function(){
+  var address = $('fTeamAddr').value.trim();
+  if(!address){
+    $('fTeamAddr').style.borderColor = 'var(--red)';
+    return;
+  }
+  $('fTeamAddr').style.borderColor = '';
+  teamVerifyBtn.disabled = true;
+  teamVerifyBtn.textContent = 'Verifying…';
+  teamVerifyMsg.hidden = false;
+  teamVerifyMsg.classList.remove('pow-error');
+  teamVerifyMsg.textContent = '⏳ Checking team code with server…';
+  try{
+    await verifyTeamClaim(address, teamCodeValue);
+    var handle = $('fTeamHandle').value.trim();
+    teamClaim = { address: address };
+    var memoObj = { p: 'zrc-20', op: 'mint', tick: 'ghst', amt: '1', to: address, team: '1' };
+    if(handle) memoObj.x = handle;
+    $('teamMemo').textContent = JSON.stringify(memoObj);
+    $('teamPayAddr').textContent = PAY_ADDRESS_TEAM;
+    teamVerifyMsg.textContent = '✓ Team code accepted — allocation reserved for this address.';
+    teamPaySection.hidden = false;
+    teamVerifyBtn.textContent = 'Verified';
+  }catch(e){
+    teamVerifyMsg.classList.add('pow-error');
+    teamVerifyMsg.textContent = '✕ ' + e.message;
+    teamVerifyBtn.disabled = false;
+    teamVerifyBtn.textContent = 'Verify & generate claim';
+  }
+});
+
+$('teamClaimBtn').addEventListener('click', function(){
+  var txid = $('fTeamTxid').value.trim();
+  var addr = $('fTeamAddr').value.trim();
+  var handle = $('fTeamHandle').value.trim();
+  if(!txid || !teamClaim || teamClaim.address !== addr){
+    $('fTeamTxid').style.borderColor = txid ? '' : 'var(--red)';
+    return;
+  }
+  var block =
+    'GHST TEAM CLAIM\n' +
+    'txid: ' + txid + '\n' +
+    'receive_address: ' + addr + '\n' +
+    'handle: ' + (handle || '(none)') + '\n' +
+    'inscription (memo): ' + $('teamMemo').textContent + '\n' +
+    'amount: ' + TEAM_PRICE + ' ZEC (symbolic — team allocation is free, not sold)\n' +
+    'note: server already confirmed the team code, one-claim-per-address, and the 33 cap before this memo was generated.';
+  var r = $('teamReceipt');
+  r.textContent = block;
+  r.classList.add('show');
 });
 
 /* ---------- Noir Wallet connect + mint flow ---------- */

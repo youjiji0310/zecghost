@@ -52,6 +52,58 @@
       </ul>
     </div>
 
+    <details class="panel" id="teamPanel">
+      <summary style="cursor:pointer;font-family:var(--f-mono);font-size:.72rem;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.08em;">Team mint (Phase 1 — invite only)</summary>
+
+      <div style="margin-top:1.1rem;" id="teamLocked">
+        <p class="priv-note" style="margin:0 0 1rem;">33 addresses, gated by a code shared privately with the team — not by payment. The code is checked on the server, it's never in this page's code.</p>
+        <div class="field">
+          <label for="fTeamCode">team code</label>
+          <input id="fTeamCode" type="password" placeholder="ask the team lead">
+        </div>
+        <button class="btn btn-secondary" id="teamUnlockBtn">Unlock team mint</button>
+      </div>
+
+      <div style="margin-top:1.1rem;" id="teamUnlocked" hidden>
+        <div class="field">
+          <label for="fTeamAddr">your zcash address (to receive $GHST)</label>
+          <input id="fTeamAddr" placeholder="u1... or zs1...">
+        </div>
+        <div class="field">
+          <label for="fTeamHandle">x / social handle (optional, added to the inscription)</label>
+          <input id="fTeamHandle" placeholder="@yourhandle">
+        </div>
+        <button class="btn btn-secondary" id="teamVerifyBtn">Verify &amp; generate claim</button>
+        <p class="priv-note pow-done" id="teamVerifyMsg" hidden></p>
+
+        <div style="margin-top:1.1rem;" id="teamPaySection" hidden>
+          <div class="field-row">
+            <span class="k">Send exactly</span>
+            <span class="v amt" id="teamAmount">0.0001 ZEC</span>
+            <button class="copy-btn" id="teamAmountCopy" data-copy="0.0001">Copy</button>
+          </div>
+          <div class="field-row">
+            <span class="k">To</span>
+            <span class="v" id="teamPayAddr"></span>
+            <button class="copy-btn" data-copy-target="teamPayAddr">Copy</button>
+          </div>
+          <div class="field-row">
+            <span class="k">With memo</span>
+            <span class="v" id="teamMemo"></span>
+            <button class="copy-btn" data-copy-target="teamMemo">Copy</button>
+          </div>
+          <p class="priv-note">Team allocation is still a real transaction — Zcash requires a nonzero amount to attach a memo, so this is a symbolic dust send, not the public price.</p>
+
+          <div class="field" style="margin-top:.9rem;">
+            <label for="fTeamTxid">transaction id (after sending)</label>
+            <input id="fTeamTxid" placeholder="paste the txid">
+          </div>
+          <button class="btn" id="teamClaimBtn">Prepare claim record</button>
+          <div class="receipt" id="teamReceipt"></div>
+        </div>
+      </div>
+    </details>
+
     <div class="panel">
       <h2>Mint with Noir Wallet</h2>
 
