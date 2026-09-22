@@ -1,8 +1,13 @@
 import { getNoirWallet } from '@noir-wallet/sdk';
 import { startPow, DIFFICULTY } from './pow.js';
-import { TOTAL_SUPPLY, MINTED_TOTAL, MINT_PRICE, TEAM_PRICE } from './config.js';
+import { TOTAL_SUPPLY, MINTED_TOTAL, MINT_PRICE, EASY_MINT_PRICE, TEAM_PRICE } from './config.js';
 
 function $(id){ return document.getElementById(id); }
+
+// The price for the currently-selected path: mining (cheaper, climbs
+// with the epoch, same ladder as the difficulty) or easy (flat, no
+// proof-of-work — pay EASY_MINT_PRICE instead of mining for MINT_PRICE).
+function priceFor(easy){ return easy ? EASY_MINT_PRICE : MINT_PRICE; }
 
 /* keep every displayed number in sync with the same config the
    difficulty above was computed from — no separate hardcoded copies
@@ -14,12 +19,15 @@ function syncConfigDisplay(){
   if(nEls[1]) nEls[1].textContent = TOTAL_SUPPLY - MINTED_TOTAL;
 
   var phase2Price = $('phase2Price');
-  if(phase2Price) phase2Price.textContent = MINT_PRICE + ' ZEC';
+  if(phase2Price) phase2Price.textContent = MINT_PRICE + '–' + EASY_MINT_PRICE + ' ZEC';
 
   var mintAmount = $('mintAmount');
   if(mintAmount) mintAmount.textContent = MINT_PRICE + ' ZEC';
   var mintAmountCopy = $('mintAmountCopy');
   if(mintAmountCopy) mintAmountCopy.dataset.copy = MINT_PRICE;
+
+  document.querySelectorAll('.mining-price-label').forEach(function(el){ el.textContent = MINT_PRICE + ' ZEC'; });
+  document.querySelectorAll('.easy-price-label').forEach(function(el){ el.textContent = EASY_MINT_PRICE + ' ZEC'; });
 
   var teamAmount = $('teamAmount');
   if(teamAmount) teamAmount.textContent = TEAM_PRICE + ' ZEC';
@@ -47,8 +55,12 @@ syncConfigDisplay();
 
 // The real ZRC-20-style mint inscription — matches the spec panel on the
 // page exactly, so any indexer built against that spec recognizes it.
+// nonce is null on the "easy" path (no proof-of-work was done), in
+// which case the pow field is left out of the memo entirely rather
+// than faked.
 function buildMemo(address, handle, nonce){
-  var memoObj = { p: 'zrc-20', op: 'mint', tick: 'ghst', amt: '1', to: address, pow: String(nonce) };
+  var memoObj = { p: 'zrc-20', op: 'mint', tick: 'ghst', amt: '1', to: address };
+  if(nonce !== null && nonce !== undefined) memoObj.pow = String(nonce);
   if(handle) memoObj.x = handle;
   return JSON.stringify(memoObj);
 }
@@ -109,11 +121,16 @@ function mountTurnstile(containerId, onToken){
   };
 }
 
-async function verifyClaim(address, nonce, turnstileToken){
+async function verifyClaim(address, nonce, turnstileToken, easy){
   var res = await fetch('/api/verify-claim', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ address: address, nonce: nonce, turnstileToken: turnstileToken })
+    body: JSON.stringify({
+      address: address,
+      nonce: nonce,
+      turnstileToken: turnstileToken,
+      mode: easy ? 'easy' : 'mining'
+    })
   });
   var data;
   try{ data = await res.json(); }catch(e){ data = { ok:false, error:'bad server response' }; }
@@ -138,14 +155,16 @@ function wirePowGate(opts){
   var doneEl = $(opts.doneId);
   var tagEl = $(opts.tagId);
   var unlockBtn = $(opts.unlockBtnId);
-  var unlockLabel = opts.unlockLabel;
+  var unlockLabel = opts.unlockLabel; // function(easy) -> string
   var startLabel = startBtn.textContent;
   var memoRow = opts.memoRowId ? $(opts.memoRowId) : null;
   var memoEl = opts.memoTextId ? $(opts.memoTextId) : null;
   var memoHint = opts.memoHintId ? $(opts.memoHintId) : null;
+  var easyToggle = opts.easyToggleId ? $(opts.easyToggleId) : null;
+  var stopBtn = opts.stopBtnId ? $(opts.stopBtnId) : null;
 
   var expectedAttempts = Math.pow(16, DIFFICULTY);
-  var solved = null; // { nonce, hash, address }
+  var solved = null; // { nonce, hash, address } — nonce is null on the easy path
   var job = null;
   var turnstileToken = null;
   var verifying = false;
@@ -156,37 +175,55 @@ function wirePowGate(opts){
       })
     : null;
 
+  function isEasy(){ return !!(easyToggle && easyToggle.checked); }
+
   function reset(){
     solved = null;
     turnstileToken = null;
     verifying = false;
     if(turnstileHandle) turnstileHandle.reset();
     unlockBtn.disabled = true;
-    unlockBtn.textContent = 'Solve proof-of-work first';
+    unlockBtn.textContent = isEasy() ? 'Solve the captcha first' : 'Solve proof-of-work first';
     doneEl.hidden = true;
     doneEl.classList.remove('pow-error');
     tagEl.classList.remove('solved');
-    tagEl.textContent = 'Proof-of-work required';
+    tagEl.textContent = isEasy() ? 'Captcha required (no mining)' : 'Proof-of-work required';
     if(memoRow){ memoRow.hidden = true; }
     if(memoHint){ memoHint.hidden = false; }
+    if(opts.onModeChange) opts.onModeChange(isEasy());
   }
 
   function attemptVerify(){
-    if(!solved || !turnstileToken || verifying) return;
+    if(verifying || !turnstileToken) return;
+    var easy = isEasy();
+    if(!easy && !solved) return; // mining path needs a solved nonce first
+    var address = easy ? opts.getAddress() : solved.address;
+    if(easy && !address){
+      if(opts.onMissingAddress) opts.onMissingAddress();
+      turnstileToken = null;
+      if(turnstileHandle) turnstileHandle.reset();
+      return;
+    }
     verifying = true;
     doneEl.hidden = false;
     doneEl.classList.remove('pow-error');
-    doneEl.innerHTML = '⏳ Verifying with server (captcha + proof-of-work)…';
-    verifyClaim(solved.address, solved.nonce, turnstileToken).then(function(){
+    doneEl.innerHTML = easy
+      ? '⏳ Verifying with server (captcha only — no proof-of-work needed)…'
+      : '⏳ Verifying with server (captcha + proof-of-work)…';
+    var nonce = easy ? null : solved.nonce;
+    verifyClaim(address, nonce, turnstileToken, easy).then(function(){
       verifying = false;
       doneEl.classList.remove('pow-error');
-      doneEl.innerHTML = '✓ Verified — nonce <strong>' + solved.nonce + '</strong> confirmed server-side';
+      doneEl.innerHTML = easy
+        ? '✓ Verified — captcha confirmed server-side (easy mint, no mining)'
+        : '✓ Verified — nonce <strong>' + nonce + '</strong> confirmed server-side';
       tagEl.classList.add('solved');
       tagEl.textContent = 'Solved & verified';
       unlockBtn.disabled = false;
-      unlockBtn.textContent = unlockLabel;
+      unlockBtn.textContent = unlockLabel(easy);
+      solved = { nonce: nonce, hash: (easy ? null : solved.hash), address: address };
       if(memoEl && opts.getHandle){
-        memoEl.textContent = buildMemo(solved.address, opts.getHandle(), solved.nonce);
+        memoEl.textContent = buildMemo(address, opts.getHandle(), nonce);
         memoRow.hidden = false;
         if(memoHint) memoHint.hidden = true;
       }
@@ -197,6 +234,20 @@ function wirePowGate(opts){
       if(turnstileHandle) turnstileHandle.reset();
       turnstileToken = null;
     });
+  }
+
+  if(easyToggle){
+    easyToggle.addEventListener('change', function(){
+      if(job) job.cancel();
+      startBtn.hidden = isEasy();
+      progressBox.hidden = true;
+      reset();
+      // an address may already be typed in — if the captcha is also
+      // already solved (rare, but possible on toggle-back-and-forth),
+      // this re-attempts verification right away
+      if(isEasy() && turnstileToken) attemptVerify();
+    });
+    startBtn.hidden = isEasy();
   }
 
   startBtn.addEventListener('click', function(){
@@ -248,8 +299,27 @@ function wirePowGate(opts){
     });
   });
 
+  // lets someone bail out mid-mining — e.g. wrong address typed, tab
+  // about to close, or it's just taking longer than they want. Cancels
+  // the workers immediately (same job.cancel() used internally when a
+  // fresh mining run starts) and puts the gate back to its idle state.
+  if(stopBtn){
+    stopBtn.addEventListener('click', function(){
+      if(job) job.cancel();
+      job = null;
+      startBtn.disabled = false;
+      startBtn.textContent = startLabel;
+      progressBox.hidden = true;
+      doneEl.hidden = false;
+      doneEl.classList.remove('pow-error');
+      doneEl.textContent = 'Mining stopped — click "' + startLabel + '" to try again whenever you\'re ready.';
+      tagEl.textContent = isEasy() ? 'Captcha required (no mining)' : 'Proof-of-work required';
+    });
+  }
+
   return {
     getSolved: function(){ return solved; },
+    isEasy: isEasy,
     invalidate: reset,
     refreshMemo: function(){
       if(solved && memoEl && opts.getHandle){
@@ -261,6 +331,14 @@ function wirePowGate(opts){
 
 /* ---------- manual claim form (fallback path) ---------- */
 
+function updateManualPriceDisplay(easy){
+  var price = priceFor(easy);
+  var mintAmount = $('mintAmount');
+  if(mintAmount) mintAmount.textContent = price + ' ZEC';
+  var mintAmountCopy = $('mintAmountCopy');
+  if(mintAmountCopy) mintAmountCopy.dataset.copy = price;
+}
+
 var manualGate = wirePowGate({
   startBtnId: 'powStartBtnM',
   progressId: 'powProgressM',
@@ -268,12 +346,15 @@ var manualGate = wirePowGate({
   statsId: 'powStatsM',
   doneId: 'powDoneM',
   tagId: 'powTagM',
+  stopBtnId: 'powStopBtnM',
   unlockBtnId: 'claimBtn',
-  unlockLabel: 'Prepare claim record',
+  unlockLabel: function(){ return 'Prepare claim record'; },
   turnstileContainerId: 'turnstileM',
   memoRowId: 'memoRow',
   memoTextId: 'mintMemo',
   memoHintId: 'memoHint',
+  easyToggleId: 'easyModeM',
+  onModeChange: updateManualPriceDisplay,
   getAddress: function(){ return $('fAddr').value.trim(); },
   getHandle: function(){ return $('fHandle').value.trim(); },
   onMissingAddress: function(){ $('fAddr').style.borderColor = 'var(--red)'; }
@@ -300,14 +381,15 @@ $('claimBtn').addEventListener('click', function(){
     $('fAddr').style.borderColor = addr ? '' : 'var(--red)';
     return;
   }
+  var easy = manualGate.isEasy();
   var block =
     'GHST CLAIM\n' +
     'txid: ' + txid + '\n' +
     'receive_address: ' + addr + '\n' +
     'handle: ' + (handle || '(none)') + '\n' +
     'inscription (memo): ' + buildMemo(addr, handle, solved.nonce) + '\n' +
-    'pow_hash: ' + solved.hash + '\n' +
-    'amount: ' + MINT_PRICE + ' ZEC\n' +
+    (easy ? 'path: easy mint (no proof-of-work)\n' : 'pow_hash: ' + solved.hash + '\n') +
+    'amount: ' + priceFor(easy) + ' ZEC\n' +
     'note: if the memo above was already attached to your payment on-chain, this record is just a backup for the team.';
   var r = $('receipt');
   r.textContent = block;
@@ -417,7 +499,8 @@ $('teamClaimBtn').addEventListener('click', function(){
 /* ---------- Noir Wallet connect + mint flow ---------- */
 
 var PAY_ADDRESS = $('payAddr').textContent.trim();
-var AMOUNT = MINT_PRICE;
+
+function walletUnlockLabel(easy){ return 'Mint — send ' + priceFor(easy) + ' ZEC'; }
 
 var elIdle = $('walletIdle');
 var elConnected = $('walletConnected');
@@ -439,9 +522,11 @@ var walletGate = wirePowGate({
   statsId: 'powStatsW',
   doneId: 'powDoneW',
   tagId: 'powTagW',
+  stopBtnId: 'powStopBtnW',
   unlockBtnId: 'mintBtn',
-  unlockLabel: 'Mint — send ' + AMOUNT + ' ZEC',
+  unlockLabel: walletUnlockLabel,
   turnstileContainerId: 'turnstileW',
+  easyToggleId: 'easyModeW',
   getAddress: function(){ return connAddr.textContent.trim(); }
 });
 
@@ -506,10 +591,12 @@ mintBtn.addEventListener('click', async function(){
   if(!wallet) return;
   var fromAddr = connAddr.textContent.trim();
   var solved = walletGate.getSolved();
+  var easy = walletGate.isEasy();
   if(!solved || solved.address !== fromAddr){
-    setStatus('Solve the proof-of-work challenge above first.', true);
+    setStatus(easy ? 'Solve the captcha above first.' : 'Solve the proof-of-work challenge above first.', true);
     return;
   }
+  var amount = priceFor(easy);
   mintBtn.disabled = true;
   mintBtn.textContent = 'Confirm in wallet…';
   setStatus('');
@@ -518,7 +605,7 @@ mintBtn.addEventListener('click', async function(){
   try{
     var txid = await wallet.zcash.sendTransaction({
       to: PAY_ADDRESS,
-      amount: AMOUNT,
+      amount: amount,
       memo: memo,
       fundingSource: 'shielded'
     });
@@ -527,13 +614,13 @@ mintBtn.addEventListener('click', async function(){
       'txid: ' + txid + '\n' +
       'from: ' + fromAddr + '\n' +
       'inscription (memo): ' + memo + '\n' +
-      'pow_hash: ' + solved.hash + '\n' +
-      'amount: ' + AMOUNT + ' ZEC';
+      (easy ? 'path: easy mint (no proof-of-work)\n' : 'pow_hash: ' + solved.hash + '\n') +
+      'amount: ' + amount + ' ZEC';
     elConnected.hidden = true;
     elSuccess.hidden = false;
   }catch(e){
     mintBtn.disabled = false;
-    mintBtn.textContent = 'Mint — send ' + AMOUNT + ' ZEC';
+    mintBtn.textContent = walletUnlockLabel(easy);
     var msg = (e && e.message) ? e.message : 'Transaction was cancelled or failed.';
     setStatus(msg, true);
   }

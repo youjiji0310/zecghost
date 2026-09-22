@@ -52,6 +52,15 @@ ghst-mint-project/
     main.js               # logique : copy-to-clipboard, claim manuel, connect/mint Noir Wallet, anti-bot
 ```
 
+## Deux façons de mint (mining vs easy)
+
+Le mint public (Phase 2) propose deux chemins, au choix de chaque personne :
+
+- **Mining** — résoudre le proof-of-work dans le navigateur (voir plus bas), prix qui suit le même palier que la difficulté : `0.005 ZEC` de 0 à 299 mintés, `0.01 ZEC` de 300 à 599, `0.02 ZEC` à partir de 600. Moins cher au début, mais demande du calcul.
+- **Easy** — case à cocher « Skip mining » dans le mint gate : aucun proof-of-work à résoudre, prix fixe **`0.02 ZEC`** quel que soit le palier. Reste protégé par captcha + rate-limit + un claim par adresse (mêmes contrôles serveur que le chemin mining, juste sans la vérification du nonce).
+
+Les deux prix sont calculés dans `src/config.js` (`MINT_PRICE` pour mining, `EASY_MINT_PRICE` pour easy) — rien n'est à modifier ailleurs, tout le reste de la page (labels, spec panel, mémo) lit ces mêmes constantes.
+
 ## Anti-bot : captcha + rate-limit (obligatoire pour que le mint gate marche)
 
 Le mint ne s'active plus juste en résolvant le proof-of-work dans le navigateur — un bot peut faire ça aussi vite ou plus vite qu'un humain (sha256 c'est justement le genre de calcul qu'un bot fait bien). Maintenant il faut **en plus** :

@@ -36,8 +36,9 @@
       </div>
       <div class="phase pending">
         <div class="t">Phase 2 — Public</div>
-        <div class="p" id="phase2Price">0.001 ZEC</div>
+        <div class="p" id="phase2Price">0.005–0.02 ZEC</div>
         <div class="s">PENDING · 0/966 minted</div>
+        <div class="s" style="margin-top:.2rem;">mine it (cheaper) or pay flat, see below</div>
       </div>
     </div>
 
@@ -132,10 +133,15 @@
             <span class="k">Mint gate</span>
             <span class="pow-tag" id="powTagW">Proof-of-work required</span>
           </div>
+          <label style="display:flex;align-items:flex-start;gap:.5rem;margin-bottom:.8rem;font-size:.78rem;color:var(--ink-dim);cursor:pointer;">
+            <input type="checkbox" id="easyModeW" style="margin-top:.15rem;">
+            <span>Skip mining — pay a flat <strong class="easy-price-label">0.02 ZEC</strong> instead of mining for <strong class="mining-price-label">0.005 ZEC</strong></span>
+          </label>
           <button class="btn btn-secondary" id="powStartBtnW">Start mining — unlock mint</button>
           <div id="powProgressW" class="pow-progress" hidden>
             <div class="pow-bar"><div class="pow-bar-fill" id="powBarFillW"></div></div>
             <p class="priv-note" id="powStatsW"></p>
+            <button class="btn btn-secondary" id="powStopBtnW" style="margin-top:.6rem;">Stop mining</button>
           </div>
           <p class="priv-note pow-done" id="powDoneW" hidden></p>
           <div id="turnstileW" style="margin-top:.8rem;"></div>
@@ -169,10 +175,15 @@
             <span class="k">Mint gate</span>
             <span class="pow-tag" id="powTagM">Proof-of-work required</span>
           </div>
+          <label style="display:flex;align-items:flex-start;gap:.5rem;margin-bottom:.8rem;font-size:.78rem;color:var(--ink-dim);cursor:pointer;">
+            <input type="checkbox" id="easyModeM" style="margin-top:.15rem;">
+            <span>Skip mining — pay a flat <strong class="easy-price-label">0.02 ZEC</strong> instead of mining for <strong class="mining-price-label">0.005 ZEC</strong></span>
+          </label>
           <button class="btn btn-secondary" id="powStartBtnM">Start mining — unlock payment memo</button>
           <div id="powProgressM" class="pow-progress" hidden>
             <div class="pow-bar"><div class="pow-bar-fill" id="powBarFillM"></div></div>
             <p class="priv-note" id="powStatsM"></p>
+            <button class="btn btn-secondary" id="powStopBtnM" style="margin-top:.6rem;">Stop mining</button>
           </div>
           <p class="priv-note pow-done" id="powDoneM" hidden></p>
           <div id="turnstileM" style="margin-top:.8rem;"></div>
@@ -202,9 +213,10 @@
       <div style="margin-top:1.3rem;">
         <div class="field">
           <label for="fTxid">transaction id (after sending)</label>
-          <input id="fTxid" placeholder="paste the txid of your 0.025 ZEC payment">
+          <input id="fTxid" placeholder="paste the txid of your payment">
         </div>
         <button class="btn" id="claimBtn" disabled>Solve proof-of-work first</button>
+        <p class="priv-note" style="margin-top:.5rem;">The amount above already matches whichever path you picked (mining or the flat easy-mint price).</p>
         <div class="receipt" id="receipt"></div>
         <p class="receipt-note" id="receiptNote" hidden>
           This page has no backend — nothing was sent yet. <strong>Copy the block above</strong> and send it to the $GHST team
@@ -218,6 +230,7 @@
       <h2>The mint spec, if you want to verify it yourself</h2>
       <div class="spec">deploy → {"p":"zrc-20","<span class="op">op":"deploy"</span>,"tick":"ghst","max":"999","lim":"1"}<br>mint&nbsp;&nbsp;&nbsp;→ {"p":"zrc-20","<span class="op">op":"mint"</span>,"tick":"ghst","amt":"1","pow":"&lt;nonce&gt;"}</div>
       <p class="priv-note" style="margin-top:.8rem;">Proof-of-work rule: <code>sha256(receive_address + ":" + nonce)</code> must start with <strong id="specDifficulty">8</strong> leading hex zeros (<code id="specZeros">00000000</code> right now). Not fixed — difficulty starts at 8 and adds one more zero every 300 mints, capped at 10, so it gets <strong>harder</strong> as the mint sells out. Currently <span id="specMintedNow">0</span>/999 minted. Deliberately brutal — minutes on strong multi-core hardware, hours-to-days on weak ones, worse near sell-out. Anyone can re-hash the nonce in the memo and check it themselves — no trust required for this part, unlike the delivery step above.</p>
+      <p class="priv-note" style="margin-top:.6rem;">Two ways to mint: solve the proof-of-work above and pay <strong class="mining-price-label">0.005 ZEC</strong> (this tier's mining price — it climbs the same way the difficulty does, up to <strong class="easy-price-label">0.02 ZEC</strong> at the top tier), or skip mining entirely and pay a flat <strong class="easy-price-label">0.02 ZEC</strong> instead. Either way the mint stays gated by captcha + rate-limit + one-claim-per-address server-side — the proof-of-work is an extra, optional layer on top of that, not a replacement for it.</p>
     </div>
 
     <div class="panel">

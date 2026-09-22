@@ -1,14 +1,23 @@
 // Vercel serverless function — the real anti-bot gate.
 //
-// The browser still does the actual proof-of-work mining (that part
-// stays honest and independently verifiable by anyone). But nothing
-// on the page unlocks the mint/claim button until THIS endpoint
-// confirms three things, server-side, where a bot can't fake them:
+// Two mint paths call this endpoint:
+//   - "mining" (default): the browser does real proof-of-work (that
+//     part stays honest and independently verifiable by anyone), and
+//     this endpoint recomputes the hash itself before trusting it.
+//   - "easy": no proof-of-work at all — the visitor pays the flat
+//     EASY_MINT_PRICE instead of mining for the (cheaper, epoch-tied)
+//     mining price. Since there's no PoW to prove effort, the captcha
+//     + rate-limit + one-claim-per-address checks below are the ONLY
+//     anti-bot layer for this path — they still apply in full.
+//
+// Nothing on the page unlocks the mint/claim button until THIS
+// endpoint confirms, server-side, where a bot can't fake them:
 //
 //   1. a Cloudflare Turnstile challenge was genuinely solved by a
 //      real browser for this request
-//   2. the submitted nonce genuinely satisfies the proof-of-work rule
-//      (we recompute the hash ourselves — never trust the client)
+//   2. (mining path only) the submitted nonce genuinely satisfies the
+//      proof-of-work rule (we recompute the hash ourselves — never
+//      trust the client)
 //   3. this address hasn't already claimed, and this IP hasn't
 //      hammered the endpoint faster than a human plausibly would
 //
@@ -36,9 +45,10 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const { address, nonce, turnstileToken } = body;
+    const { address, nonce, turnstileToken, mode } = body;
+    const isEasy = mode === 'easy';
 
-    if (!address || nonce === undefined || nonce === null || !turnstileToken) {
+    if (!address || !turnstileToken || (!isEasy && (nonce === undefined || nonce === null))) {
       res.status(400).json({ ok: false, error: 'missing fields' });
       return;
     }
@@ -70,14 +80,21 @@ export default async function handler(req, res) {
     }
 
     // 3) verify the proof-of-work is real — recompute it ourselves
-    const prefix = '0'.repeat(DIFFICULTY);
-    const hash = sha256Hex(`${address}:${nonce}`);
-    if (hash.slice(0, DIFFICULTY) !== prefix) {
-      res.status(400).json({ ok: false, error: 'invalid proof-of-work' });
-      return;
+    //    (skipped entirely on the "easy" path — that path trades the
+    //    mining discount for the captcha + rate-limit above being the
+    //    only anti-bot layer, which is the deal it's offering)
+    var hash = null;
+    if (!isEasy) {
+      const prefix = '0'.repeat(DIFFICULTY);
+      hash = sha256Hex(`${address}:${nonce}`);
+      if (hash.slice(0, DIFFICULTY) !== prefix) {
+        res.status(400).json({ ok: false, error: 'invalid proof-of-work' });
+        return;
+      }
     }
 
-    // 4) one claim per address, ever
+    // 4) one claim per address, ever (shared between both paths — an
+    // address can't mine AND easy-mint, or easy-mint twice)
     const already = await kv(['get', `ghst:claim:${address}`]);
     if (already) {
       res.status(409).json({ ok: false, error: 'this address already has a verified claim' });
@@ -85,7 +102,7 @@ export default async function handler(req, res) {
     }
     await kv(['set', `ghst:claim:${address}`, String(Date.now())]);
 
-    res.status(200).json({ ok: true, hash });
+    res.status(200).json({ ok: true, hash: hash });
   } catch (e) {
     res.status(500).json({ ok: false, error: (e && e.message) || 'server error' });
   }
